@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import faiss
 import numpy as np
 import pandas as pd
@@ -10,7 +12,7 @@ from sqlalchemy import URL, create_engine
 app = Flask(__name__)
 
 # GPT-4o Configuration
-token = "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"
+token = "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"
 endpoint = "https://models.inference.ai.azure.com"
 model_name = "gpt-4o"
 
@@ -46,6 +48,7 @@ DB_CONFIG = {
 
 FAISS_FILE = "clothing_index.faiss"
 
+
 def create_engine_connection():
     """
     Tạo kết nối SQLAlchemy tới MySQL.
@@ -60,6 +63,7 @@ def create_engine_connection():
     )
     return create_engine(db_config)
 
+
 def load_data_from_db(engine, query):
     """
     Truy vấn dữ liệu từ database.
@@ -72,15 +76,19 @@ def load_data_from_db(engine, query):
     except Exception as e:
         raise ValueError(f"Lỗi khi tải dữ liệu: {e}")
 
+
 def vectorize_data(data):
     """
     Vector hóa dữ liệu từ mô tả sản phẩm.
     """
     try:
-        data['vector'] = data.apply(lambda row: embedding_model.encode(f"{row['title']} {row['description']}").tolist(), axis=1)
+        data['vector'] = data.apply(lambda row: embedding_model.encode(f"{row['title']} {row['description']}")
+                                    .tolist(),
+                                    axis=1)
         return data
     except Exception as e:
         raise ValueError(f"Lỗi khi vector hóa dữ liệu: {e}")
+
 
 def create_faiss_index(data, faiss_file):
     try:
@@ -94,6 +102,7 @@ def create_faiss_index(data, faiss_file):
         return True
     except Exception as e:
         raise ValueError(f"Lỗi khi tạo FAISS index: {e}")
+
 
 @app.route("/initialize", methods=["GET"])
 def initialize_index():
@@ -117,6 +126,57 @@ def initialize_index():
         return jsonify({"message": "FAISS index đã được tạo thành công!"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/add_product", methods=["POST"])
+def add_product():
+    """
+    Thêm sản phẩm mới vào faiss
+    """
+    try:
+        # Lấy dữ liệu từ request
+        data = request.json
+
+        # Kiểm tra dữ liệu
+        required_fields = ["score", "create_at", "price", "update_at", "signature", "title", "description", "id"]
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"Trường '{field}' là bắt buộc"}), 400
+
+        # Chuyển đổi dữ liệu
+        product = {
+            "id": data["id"],
+            "score": float(data["score"]),
+            "create_at": datetime.strptime(data["create_at"], "%Y-%m-%d %H:%M:%S"),
+            "price": int(data["price"]),
+            "update_at": datetime.strptime(data["update_at"], "%Y-%m-%d %H:%M:%S"),
+            "signature": data["signature"],
+            "title": data["title"],
+            "description": data["description"]
+        }
+
+        # Bước 1: Lưu sản phẩm vào database
+        engine = create_engine_connection()
+        query = """
+               INSERT INTO products (id, score, create_at, price, update_at, signature, title, description)
+               VALUES (:id, :score, :create_at, :price, :update_at, :signature, :title, :description)
+               """
+        with engine.connect() as connection:
+            connection.execute(query, product)
+
+        # Bước 2: Vector hóa dữ liệu sản phẩm mới
+        vector = embedding_model.encode(f"{product['title']} {product['description']}").astype('float32')
+
+        # Bước 3: Thêm vector vào FAISS index
+        index.add_with_ids(np.array([vector]), np.array([product["id"]], dtype='int64'))
+        faiss.write_index(index, FAISS_FILE)
+
+        return jsonify({"message": "Sản phẩm đã được thêm thành công và FAISS index đã được cập nhật."}), 200
+
+    except Exception as e:
+        print(f"Lỗi: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/query', methods=['POST'])
 def handle_query():
@@ -179,6 +239,7 @@ def handle_query():
     except Exception as e:
         print(f"Lỗi: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
