@@ -6,11 +6,11 @@ WORKDIR /app
 
 # Copy file ứng dụng và yêu cầu vào container
 COPY app.py /app/app.py
-COPY requirements.txt /app/requirements.txt
+#COPY requirements.txt /app/requirements.txt
 COPY clothing_index.faiss /app/clothing_index.faiss
 
 # Cài đặt các thư viện cần thiết
-RUN pip install --default-timeout=100 --no-cache-dir -r requirements.txt
+RUN #pip install --default-timeout=100 --no-cache-dir -r requirements.txt
 
 # Expose port để Flask có thể lắng nghe
 EXPOSE 5000
