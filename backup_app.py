@@ -179,19 +179,6 @@ def add_product():
         return jsonify({"error": str(e)}), 500
 
 
-def extract_keywords_vietnamese(sentence):
-    """
-    Hàm để trích xuất danh từ và tính từ từ câu tiếng Việt.
-    """
-    try:
-        tagged_words = pos_tag(sentence)  # Phân loại từ (POS tagging)
-        # Lọc ra danh từ (N), danh từ riêng (Np) và tính từ (A)
-        keywords = [word for word, tag in tagged_words if tag in ['N', 'Np', 'A']]
-        return ' '.join(keywords)
-    except Exception as e:
-        raise ValueError(f"Lỗi khi phân tích từ vựng: {e}")
-
-
 @app.route('/query', methods=['POST'])
 def handle_query():
     try:
@@ -205,18 +192,17 @@ def handle_query():
         # Sử dụng GPT-4O để trích xuất từ khóa và xử lý câu hỏi
         print(f"Nhận câu hỏi: {question}")
 
-    #Su dung gpt de lay tu khoa
-        # gpt_response = client.chat.completions.create(
-        #     model=model_name,
-        #     messages=[
-        #         {"role": "system", "content": "Bạn là một trợ lý AI giúp trích xuất từ khóa và phân tích câu hỏi."},
-        #         {"role": "user", "content": f"Trích xuất các từ khóa chính từ câu hỏi sau: '{question}'"}
-        #     ]
-        # )
+        # Su dung gpt de lay tu khoa
+        gpt_response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "Bạn là một trợ lý AI giúp trích xuất từ khóa và phân tích câu hỏi."},
+                {"role": "user", "content": f"Trích xuất các từ khóa chính từ câu hỏi sau: '{question}'"}
+            ]
+        )
 
         # Truy cập kết quả phản hồi
-        # extracted_keywords = gpt_response.choices[0].message.content
-        extracted_keywords = extract_keywords_vietnamese(question)
+        extracted_keywords = gpt_response.choices[0].message.content
         print(f"Từ khóa được trích xuất: {extracted_keywords}")
 
         # Tạo embedding từ từ khóa được trích xuất
@@ -234,20 +220,6 @@ def handle_query():
         products = load_data_from_db(engine, query)
 
         results = [int(product['id']) for _, product in products.iterrows()]
-        # for i, product in products.iterrows():
-        #     product_info = f"Tên: {product['title']}, Giá: {product['price']}, Mô tả: {product['description']}"
-        #     gpt_response = client.chat.completions.create(
-        #         model=model_name,
-        #         messages=[
-        #             {"role": "system", "content": "Bạn là một trợ lý AI giúp tạo câu trả lời từ thông tin sản phẩm."},
-        #             {"role": "user", "content": f"Tạo câu trả lời từ thông tin sản phẩm: '{product_info}'"}
-        #         ]
-        #     )
-        #     answer = gpt_response.choices[0].message.content
-        #     results.append(product['id']
-        #                    # "answer": answer,
-        #                    # "distance": float(distances[0][i])
-        #                    )
 
         return jsonify({
             "question": question,
