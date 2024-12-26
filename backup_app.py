@@ -187,7 +187,7 @@ def extract_keywords_vietnamese(sentence):
         tagged_words = pos_tag(sentence)  # Phân loại từ (POS tagging)
         # Lọc ra danh từ (N), danh từ riêng (Np) và tính từ (A)
         keywords = [word for word, tag in tagged_words if tag in ['N', 'Np', 'A']]
-        return keywords
+        return ' '.join(keywords)
     except Exception as e:
         raise ValueError(f"Lỗi khi phân tích từ vựng: {e}")
 
@@ -205,34 +205,22 @@ def handle_query():
         # Sử dụng GPT-4O để trích xuất từ khóa và xử lý câu hỏi
         print(f"Nhận câu hỏi: {question}")
 
+    #Su dung gpt de lay tu khoa
+        # gpt_response = client.chat.completions.create(
+        #     model=model_name,
+        #     messages=[
+        #         {"role": "system", "content": "Bạn là một trợ lý AI giúp trích xuất từ khóa và phân tích câu hỏi."},
+        #         {"role": "user", "content": f"Trích xuất các từ khóa chính từ câu hỏi sau: '{question}'"}
+        #     ]
+        # )
+
+        # Truy cập kết quả phản hồi
+        # extracted_keywords = gpt_response.choices[0].message.content
         extracted_keywords = extract_keywords_vietnamese(question)
         print(f"Từ khóa được trích xuất: {extracted_keywords}")
 
-        # Sử dụng GPT để sinh ra các tính từ liên quan
-        gpt_response = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system",
-                 "content": "Bạn là một trợ lý AI giúp tạo danh sách các tính từ liên quan tới ngữ cảnh."},
-                {"role": "user",
-                 "content": f"Sinh ra các tính từ mô tả sản phẩm phù hợp với các từ khóa: {', '.join(extracted_keywords)}"}
-            ]
-        )
-        generated_adjectives = gpt_response.choices[0].message.content.strip().split('\n')
-        relevant_adjectives = []
-        for line in generated_adjectives:
-            # Tách các tính từ từ mỗi nhóm
-            if line.startswith('-'):
-                adjectives = line.strip('-').split('  ')
-                relevant_adjectives.extend(adjectives[:3])
-        print(f"Tính từ được GPT sinh ra: {relevant_adjectives}")
-
-        combined_keywords = extracted_keywords + relevant_adjectives
-        print(f"Từ khóa kết hợp: {combined_keywords}")
-
-        # 4. Tạo embedding từ các từ khóa kết hợp
-        query_text = ' '.join(combined_keywords)
-        question_embedding = embedding_model.encode(query_text).astype('float32').reshape(1, -1)
+        # Tạo embedding từ từ khóa được trích xuất
+        question_embedding = embedding_model.encode(extracted_keywords).astype('float32').reshape(1, -1)
 
         # Tìm kiếm trong FAISS
         print("Tìm kiếm trong FAISS...")
@@ -246,6 +234,21 @@ def handle_query():
         products = load_data_from_db(engine, query)
 
         results = [int(product['id']) for _, product in products.iterrows()]
+        # for i, product in products.iterrows():
+        #     product_info = f"Tên: {product['title']}, Giá: {product['price']}, Mô tả: {product['description']}"
+        #     gpt_response = client.chat.completions.create(
+        #         model=model_name,
+        #         messages=[
+        #             {"role": "system", "content": "Bạn là một trợ lý AI giúp tạo câu trả lời từ thông tin sản phẩm."},
+        #             {"role": "user", "content": f"Tạo câu trả lời từ thông tin sản phẩm: '{product_info}'"}
+        #         ]
+        #     )
+        #     answer = gpt_response.choices[0].message.content
+        #     results.append(product['id']
+        #                    # "answer": answer,
+        #                    # "distance": float(distances[0][i])
+        #                    )
+
         return jsonify({
             "question": question,
             "results": results
