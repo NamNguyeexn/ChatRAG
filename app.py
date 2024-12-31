@@ -1,16 +1,29 @@
+from collections import Counter
 from datetime import datetime
 import faiss
 import numpy as np
 import pandas as pd
 from faiss import IndexIDMap
+from flask_caching import Cache
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
-from sqlalchemy import URL, create_engine
+from sqlalchemy import URL, create_engine, text
 from flask import Flask, request, jsonify
 from sqlalchemy import create_engine
 from underthesea import word_tokenize, pos_tag
+import py_vncorenlp
+import logging
+
+# Cho lan dau tien chay thi uncomment ham nay
+# py_vncorenlp.download_model(save_dir='/home/namnguyeexn/Tai_lieu_hoc_tap/modelAI')
+
+model = py_vncorenlp.VnCoreNLP(save_dir='/home/namnguyeexn/Tai_lieu_hoc_tap/modelAI')
 
 app = Flask(__name__)
+# cache
+app.config['CACHE_TYPE'] = 'RedisCache'
+app.config['CACHE_REDIS_URL'] = 'redis://localhost:6379/0'
+cache = Cache(app)
 
 # GPT-4o Configuration
 token = "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"
@@ -28,7 +41,8 @@ embedding_model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1')
 
 # Load FAISS index
 print("Đang tải FAISS index...")
-index = faiss.read_index("clothing_index.faiss")  # Tệp FAISS đã được tạo trước
+index = faiss.read_index(
+    "/home/namnguyeexn/PycharmProjects/pythonProject/clothing_index.faiss")  # Tệp FAISS đã được tạo trước
 
 if index.ntotal == 0:
     print(f"File FAISS index rỗng (không có vector).")
@@ -47,7 +61,7 @@ DB_CONFIG = {
     "database": "ecommerce"
 }
 
-FAISS_FILE = "clothing_index.faiss"
+FAISS_FILE = "/home/namnguyeexn/PycharmProjects/pythonProject/clothing_index.faiss"
 
 
 def create_engine_connection():
@@ -207,24 +221,45 @@ def handle_query():
 
         extracted_keywords = extract_keywords_vietnamese(question)
         print(f"Từ khóa được trích xuất: {extracted_keywords}")
+        # Trả về danh sách các `name`
+        existing_labels = fetch_existing_labels_from_db()
+        # So khớp từ khóa trích xuất với nhãn đã có trong DB
+        matching_keywords = [kw for kw in extracted_keywords if kw in existing_labels]
 
-        # Sử dụng GPT để sinh ra các tính từ liên quan
-        gpt_response = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system",
-                 "content": "Bạn là một trợ lý AI giúp tạo danh sách các tính từ liên quan tới ngữ cảnh."},
-                {"role": "user",
-                 "content": f"Sinh ra các tính từ mô tả sản phẩm phù hợp với các từ khóa: {', '.join(extracted_keywords)}"}
-            ]
-        )
-        generated_adjectives = gpt_response.choices[0].message.content.strip().split('\n')
-        relevant_adjectives = []
-        for line in generated_adjectives:
-            # Tách các tính từ từ mỗi nhóm
-            if line.startswith('-'):
-                adjectives = line.strip('-').split('  ')
-                relevant_adjectives.extend(adjectives[:3])
+        # Kiểm tra nếu từ khóa đã đủ chi tiết
+        if len(matching_keywords)/len(extracted_keywords) > 3/591:
+            print("Từ khóa đủ phong phú, bỏ qua GPT.")
+            relevant_adjectives = []  # Không gọi GPT
+        else:
+            # Cache kiểm tra để tránh gọi lại GPT
+            cache_key = f"adjectives_{'_'.join(extracted_keywords)}"
+            relevant_adjectives = cache.get(cache_key)
+
+            if relevant_adjectives is None:
+                # Gọi GPT để sinh tính từ liên quan
+                gpt_response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system",
+                         "content": "Bạn là một trợ lý AI giúp tạo danh sách các tính từ liên quan tới ngữ cảnh."},
+                        {"role": "user",
+                         "content": f"Sinh ra các tính từ mô tả sản phẩm phù hợp với các từ khóa: {', '.join(extracted_keywords)}"}
+                    ]
+                )
+                generated_adjectives = gpt_response.choices[0].message.content.strip().split('\n')
+                relevant_adjectives = []
+                for line in generated_adjectives:
+                    if not line.strip():
+                        continue
+                    if line.strip()[0].isdigit():
+                        adjectives = line.split('. ')[1].strip().replace('**', '')
+                        relevant_adjectives.append(adjectives)
+
+                # Lưu vào cache
+                cache.set(cache_key, relevant_adjectives, timeout=3600)  # Cache trong 1 giờ
+            else:
+                print("Dùng kết quả từ cache.")
+
         print(f"Tính từ được GPT sinh ra: {relevant_adjectives}")
 
         combined_keywords = extracted_keywords + relevant_adjectives
@@ -253,6 +288,112 @@ def handle_query():
     except Exception as e:
         print(f"Lỗi: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+# Hàm kết nối cơ sở dữ liệu và lấy nhãn đã vector hóa
+def fetch_existing_labels_from_db():
+    try:
+        # Kết nối cơ sở dữ liệu (thay đổi thông tin kết nối phù hợp)
+        engine = create_engine_connection()
+        with engine.connect() as conn:
+            # Truy vấn lấy các label từ bảng
+            query = text("SELECT name FROM labels")  # Lấy cột `name` hoặc `code` tùy theo yêu cầu
+            result = conn.execute(query)
+            existing_labels = [row[0] for row in result]
+        return existing_labels
+    except Exception as e:
+        print(f"Lỗi khi lấy nhãn từ DB: {e}")
+        return []
+
+
+# Cấu hình logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+@app.route('/label', methods=['POST'])
+def generate_labels():
+    try:
+        # Nhận dữ liệu từ Spring
+        data = request.get_json()
+        if not data or 'title' not in data:
+            logging.warning("Yêu cầu không hợp lệ: Thiếu trường 'title'")
+            return jsonify({"error": "Trường 'title' không được để trống"}), 400
+
+        title = data['title'].strip()
+        if not title:
+            logging.warning("Trường 'title' trống")
+            return jsonify({"error": "product_title không được để trống"}), 400
+
+        logging.info(f"Nhận product_title: {title}")
+
+        # Phân tích cú pháp với VnCoreNLP
+        annotated_sentences = model.annotate_text(title)
+        logging.debug(f"Thông tin phân tích cú pháp: {annotated_sentences}")
+
+        # Tạo nhãn dựa trên phân tích
+        generated_labels = set()  # Sử dụng set để loại bỏ nhãn trùng lặp
+        max_phrase_length = 3  # Giới hạn số từ trong cụm từ
+
+        for sentence_id, words in annotated_sentences.items():
+            if not isinstance(words, list):
+                continue
+
+            for word_info in words:
+                if not isinstance(word_info, dict):
+                    continue
+
+                # Kiểm tra POS của từ hiện tại (chỉ lấy danh từ, danh từ riêng, tính từ)
+                pos_tag = word_info.get('posTag', '')
+                word_form = word_info.get('wordForm', '')
+                if pos_tag not in ['N', 'Np', 'A']:
+                    continue
+
+                # Annotate lại từ hiện tại để tách thêm các thành phần bên trong nếu có
+                annotated_word = model.annotate_text(word_form)
+                for sentence, word_a in annotated_word.items():
+                    if not isinstance(word_a, list):
+                        continue
+                    current_phrase = []  # Cụm từ hiện tại trong kết quả annotate lồng
+                    for word_if in word_a:
+                        if not isinstance(word_if, dict):
+                            continue
+                        if word_if['posTag'] == 'CH': continue
+                        word_form_if = word_if.get('wordForm', '')
+                        pos_tag_if = word_if.get('posTag', '')
+                        nerLabel = word_if.get('nerLabel', '')
+                        # Chỉ xử lý các từ có POS phù hợp
+                        if pos_tag_if == 'Np' and nerLabel == 'O' or nerLabel in ['B-LOC', 'B-PER']:
+                            current_phrase.append(word_form_if)
+                            generated_labels.add(word_form_if)  # Thêm từ đơn lẻ làm nhãn
+
+                    # Thêm cụm từ nếu cụm hiện tại không vượt quá giới hạn độ dài
+                    if current_phrase and len(current_phrase) <= max_phrase_length:
+                        phrase = " ".join(current_phrase)
+                        generated_labels.add(phrase)
+
+                # Trích xuất thông tin từ annotate
+                # word_form = word_info.get('wordForm', '')
+                # pos_tag = word_info.get('posTag', '')
+                #
+                # if pos_tag in ['N', 'Np', 'A', 'Q']:  # Danh từ, danh từ riêng, tính từ, cảm thán
+                #     current_phrase.append(word_form)
+                #     generated_labels.add(word_form)  # Thêm từ đơn lẻ làm nhãn
+
+            # Thêm cụm từ hiện tại vào danh sách nếu không vượt quá giới hạn
+            # if current_phrase and len(current_phrase) <= max_phrase_length:
+            #     phrase = " ".join(current_phrase)
+            #     generated_labels.add(phrase)
+
+        # Chuyển set thành danh sách và sắp xếp nhãn
+        unique_labels = sorted(list(generated_labels))
+        logging.info(f"Nhãn được trích xuất: {unique_labels}")
+
+        # Gửi lại nhãn cho Spring
+        return jsonify({"labels": unique_labels})
+
+    except Exception as e:
+        logging.error(f"Lỗi khi xử lý yêu cầu: {str(e)}", exc_info=True)
+        return jsonify({"error": "Đã xảy ra lỗi trong quá trình xử lý"}), 500
 
 
 if __name__ == '__main__':
