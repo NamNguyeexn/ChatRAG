@@ -11,13 +11,13 @@ from sqlalchemy import URL, create_engine, text
 from flask import Flask, request, jsonify
 from sqlalchemy import create_engine
 from underthesea import word_tokenize, pos_tag
-import py_vncorenlp
+# import py_vncorenlp
 import logging
 
 # Cho lan dau tien chay thi uncomment ham nay
 # py_vncorenlp.download_model(save_dir='/home/namnguyeexn/Tai_lieu_hoc_tap/modelAI')
 
-model = py_vncorenlp.VnCoreNLP(save_dir='/home/namnguyeexn/Tai_lieu_hoc_tap/modelAI')
+# model = py_vncorenlp.VnCoreNLP(save_dir='/home/namnguyeexn/Tai_lieu_hoc_tap/modelAI')
 
 app = Flask(__name__)
 # cache
@@ -310,90 +310,90 @@ def fetch_existing_labels_from_db():
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-@app.route('/label', methods=['POST'])
-def generate_labels():
-    try:
-        # Nhận dữ liệu từ Spring
-        data = request.get_json()
-        if not data or 'title' not in data:
-            logging.warning("Yêu cầu không hợp lệ: Thiếu trường 'title'")
-            return jsonify({"error": "Trường 'title' không được để trống"}), 400
-
-        title = data['title'].strip()
-        if not title:
-            logging.warning("Trường 'title' trống")
-            return jsonify({"error": "product_title không được để trống"}), 400
-
-        logging.info(f"Nhận product_title: {title}")
-
-        # Phân tích cú pháp với VnCoreNLP
-        annotated_sentences = model.annotate_text(title)
-        logging.debug(f"Thông tin phân tích cú pháp: {annotated_sentences}")
-
-        # Tạo nhãn dựa trên phân tích
-        generated_labels = set()  # Sử dụng set để loại bỏ nhãn trùng lặp
-        max_phrase_length = 3  # Giới hạn số từ trong cụm từ
-
-        for sentence_id, words in annotated_sentences.items():
-            if not isinstance(words, list):
-                continue
-
-            for word_info in words:
-                if not isinstance(word_info, dict):
-                    continue
-
-                # Kiểm tra POS của từ hiện tại (chỉ lấy danh từ, danh từ riêng, tính từ)
-                pos_tag = word_info.get('posTag', '')
-                word_form = word_info.get('wordForm', '')
-                if pos_tag not in ['N', 'Np', 'A']:
-                    continue
-
-                # Annotate lại từ hiện tại để tách thêm các thành phần bên trong nếu có
-                annotated_word = model.annotate_text(word_form)
-                for sentence, word_a in annotated_word.items():
-                    if not isinstance(word_a, list):
-                        continue
-                    current_phrase = []  # Cụm từ hiện tại trong kết quả annotate lồng
-                    for word_if in word_a:
-                        if not isinstance(word_if, dict):
-                            continue
-                        if word_if['posTag'] == 'CH': continue
-                        word_form_if = word_if.get('wordForm', '')
-                        pos_tag_if = word_if.get('posTag', '')
-                        nerLabel = word_if.get('nerLabel', '')
-                        # Chỉ xử lý các từ có POS phù hợp
-                        if pos_tag_if == 'Np' and nerLabel == 'O' or nerLabel in ['B-LOC', 'B-PER']:
-                            current_phrase.append(word_form_if)
-                            generated_labels.add(word_form_if)  # Thêm từ đơn lẻ làm nhãn
-
-                    # Thêm cụm từ nếu cụm hiện tại không vượt quá giới hạn độ dài
-                    if current_phrase and len(current_phrase) <= max_phrase_length:
-                        phrase = " ".join(current_phrase)
-                        generated_labels.add(phrase)
-
-                # Trích xuất thông tin từ annotate
-                # word_form = word_info.get('wordForm', '')
-                # pos_tag = word_info.get('posTag', '')
-                #
-                # if pos_tag in ['N', 'Np', 'A', 'Q']:  # Danh từ, danh từ riêng, tính từ, cảm thán
-                #     current_phrase.append(word_form)
-                #     generated_labels.add(word_form)  # Thêm từ đơn lẻ làm nhãn
-
-            # Thêm cụm từ hiện tại vào danh sách nếu không vượt quá giới hạn
-            # if current_phrase and len(current_phrase) <= max_phrase_length:
-            #     phrase = " ".join(current_phrase)
-            #     generated_labels.add(phrase)
-
-        # Chuyển set thành danh sách và sắp xếp nhãn
-        unique_labels = sorted(list(generated_labels))
-        logging.info(f"Nhãn được trích xuất: {unique_labels}")
-
-        # Gửi lại nhãn cho Spring
-        return jsonify({"labels": unique_labels})
-
-    except Exception as e:
-        logging.error(f"Lỗi khi xử lý yêu cầu: {str(e)}", exc_info=True)
-        return jsonify({"error": "Đã xảy ra lỗi trong quá trình xử lý"}), 500
+# @app.route('/label', methods=['POST'])
+# def generate_labels():
+#     try:
+#         # Nhận dữ liệu từ Spring
+#         data = request.get_json()
+#         if not data or 'title' not in data:
+#             logging.warning("Yêu cầu không hợp lệ: Thiếu trường 'title'")
+#             return jsonify({"error": "Trường 'title' không được để trống"}), 400
+#
+#         title = data['title'].strip()
+#         if not title:
+#             logging.warning("Trường 'title' trống")
+#             return jsonify({"error": "product_title không được để trống"}), 400
+#
+#         logging.info(f"Nhận product_title: {title}")
+#
+#         # Phân tích cú pháp với VnCoreNLP
+#         annotated_sentences = model.annotate_text(title)
+#         logging.debug(f"Thông tin phân tích cú pháp: {annotated_sentences}")
+#
+#         # Tạo nhãn dựa trên phân tích
+#         generated_labels = set()  # Sử dụng set để loại bỏ nhãn trùng lặp
+#         max_phrase_length = 3  # Giới hạn số từ trong cụm từ
+#
+#         for sentence_id, words in annotated_sentences.items():
+#             if not isinstance(words, list):
+#                 continue
+#
+#             for word_info in words:
+#                 if not isinstance(word_info, dict):
+#                     continue
+#
+#                 # Kiểm tra POS của từ hiện tại (chỉ lấy danh từ, danh từ riêng, tính từ)
+#                 pos_tag = word_info.get('posTag', '')
+#                 word_form = word_info.get('wordForm', '')
+#                 if pos_tag not in ['N', 'Np', 'A']:
+#                     continue
+#
+#                 # Annotate lại từ hiện tại để tách thêm các thành phần bên trong nếu có
+#                 annotated_word = model.annotate_text(word_form)
+#                 for sentence, word_a in annotated_word.items():
+#                     if not isinstance(word_a, list):
+#                         continue
+#                     current_phrase = []  # Cụm từ hiện tại trong kết quả annotate lồng
+#                     for word_if in word_a:
+#                         if not isinstance(word_if, dict):
+#                             continue
+#                         if word_if['posTag'] == 'CH': continue
+#                         word_form_if = word_if.get('wordForm', '')
+#                         pos_tag_if = word_if.get('posTag', '')
+#                         nerLabel = word_if.get('nerLabel', '')
+#                         # Chỉ xử lý các từ có POS phù hợp
+#                         if pos_tag_if == 'Np' and nerLabel == 'O' or nerLabel in ['B-LOC', 'B-PER']:
+#                             current_phrase.append(word_form_if)
+#                             generated_labels.add(word_form_if)  # Thêm từ đơn lẻ làm nhãn
+#
+#                     # Thêm cụm từ nếu cụm hiện tại không vượt quá giới hạn độ dài
+#                     if current_phrase and len(current_phrase) <= max_phrase_length:
+#                         phrase = " ".join(current_phrase)
+#                         generated_labels.add(phrase)
+#
+#                 # Trích xuất thông tin từ annotate
+#                 # word_form = word_info.get('wordForm', '')
+#                 # pos_tag = word_info.get('posTag', '')
+#                 #
+#                 # if pos_tag in ['N', 'Np', 'A', 'Q']:  # Danh từ, danh từ riêng, tính từ, cảm thán
+#                 #     current_phrase.append(word_form)
+#                 #     generated_labels.add(word_form)  # Thêm từ đơn lẻ làm nhãn
+#
+#             # Thêm cụm từ hiện tại vào danh sách nếu không vượt quá giới hạn
+#             # if current_phrase and len(current_phrase) <= max_phrase_length:
+#             #     phrase = " ".join(current_phrase)
+#             #     generated_labels.add(phrase)
+#
+#         # Chuyển set thành danh sách và sắp xếp nhãn
+#         unique_labels = sorted(list(generated_labels))
+#         logging.info(f"Nhãn được trích xuất: {unique_labels}")
+#
+#         # Gửi lại nhãn cho Spring
+#         return jsonify({"labels": unique_labels})
+#
+#     except Exception as e:
+#         logging.error(f"Lỗi khi xử lý yêu cầu: {str(e)}", exc_info=True)
+#         return jsonify({"error": "Đã xảy ra lỗi trong quá trình xử lý"}), 500
 
 
 if __name__ == '__main__':
